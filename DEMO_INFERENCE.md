@@ -19,6 +19,8 @@ This pipeline:
 - **Generates** a short summary with possible diagnosis
 - **Outputs** structured JSON with section header and section text
 
+---
+
 ### Advantages of Inference at Ingestion Time
 
 Running LLM inference as part of the Elasticsearch ingest pipeline provides several key benefits:
@@ -288,3 +290,114 @@ The following categories are used for classification:
 18. **procedures** - Procedures Performed
 19. **other_history** - Other Historical Information
 20. **labs** - Laboratory Results
+
+
+---
+
+## What LLMs Can Do Beyond Traditional BERT Models
+
+### 1. All Traditional NLP Tasks (Without Fine-tuning)
+- **Named Entity Recognition (NER)**
+- **Text Classification**
+- **Sentiment Analysis**
+- **Question Answering**
+- **Token Classification**
+- **Similarity/Semantic Search (via embeddings)**
+
+**Key Advantage**: No fine-tuning required—use natural language instructions instead of labeled training datasets.
+
+### 2. Advanced Categorization & Analysis
+- **Aspect-Based Sentiment Analysis (ABSA)** with reasoning
+- **Multi-label classification** with confidence scores
+- **Hierarchical categorization** into nested taxonomies
+- **Dynamic category creation** based on data patterns
+
+### 3. Summarization & Generation
+- **Abstractive summarization** (not just extractive)
+- **Customizable summary length and style** (executive summary, bullet points, medical notes)
+- **Multi-document summarization**
+- **Conditional generation** (generate text matching specific criteria)
+
+### 4. Zero-Shot & Few-Shot Learning
+- **Immediate deployment** without training data collection
+- **Rapid prototyping** of new classification tasks
+- **Adaptation to new domains** via prompt engineering
+- **Task switching** with a single model
+
+### 5. Complex Reasoning & Chain-of-Thought
+- **Multi-step logical reasoning**
+- **Explanation generation** (why a classification was made)
+- **Cause-and-effect analysis**
+- **Hypothesis generation** from medical symptoms
+
+### 6. Structured Output Generation
+- **JSON/XML/YAML generation** from unstructured text
+- **Schema validation** and error correction
+- **Database record creation** from narratives
+- **API payload generation**
+
+### 7. Long Context Understanding
+- **Process entire documents** (100K+ tokens vs BERT's 512 tokens)
+- **Cross-document analysis** and comparison
+- **Conversation history tracking** across multiple turns
+- **Book/report-level comprehension**
+
+### 8. Advanced Entity & Relationship Extraction
+- **Contextual entity disambiguation** (Dr. Smith the surgeon vs Dr. Smith the patient's relative)
+- **Relationship extraction** (who prescribed what to whom)
+- **Temporal reasoning** (sequence of events)
+- **Co-reference resolution** with explanations
+
+### 9. Data Quality & Augmentation
+- **Synthetic data generation** for training other models
+- **Data validation and error detection**
+- **Automated data normalization** (addresses, dates, medical codes)
+- **Missing data imputation** with reasoning
+
+### 10. Multi-Task Single Model
+- **One endpoint for all tasks** (vs. multiple fine-tuned BERT models)
+- **Cost efficiency** (no training infrastructure needed)
+- **Simplified MLOps** (no model versioning per task)
+- **Dynamic task routing** based on document type
+
+### 11. Conversational & Interactive Capabilities
+- **Clarification questions** during processing
+- **Interactive refinement** of classifications
+- **Multi-turn dialogue understanding**
+- **Context-aware responses**
+
+### 12. Domain Adaptation Without Retraining
+- **Prompt-based specialization** (add medical knowledge via instructions)
+- **In-context learning** from examples in the prompt
+- **Cross-domain transfer** (apply learnings from one domain to another)
+- **Terminology adaptation** via custom glossaries in prompts
+
+### 13. Enhanced Multi-Lingual Support
+- **100+ languages** without language-specific models
+- **Cross-lingual transfer** and translation
+- **Code-switching handling** (documents mixing languages)
+- **Cultural context awareness**
+
+### 14. Creative & Transformation Tasks
+- **Content rewriting** (formal ↔ casual tone)
+- **Format conversion** (narrative → structured clinical note)
+- **De-identification with context preservation**
+- **Paraphrasing while maintaining medical accuracy**
+
+### 15. Compliance & Governance
+- **Audit trail generation** (explain every decision)
+- **Bias detection and reporting**
+- **Sensitive content flagging**
+- **Regulatory compliance checking** (HIPAA, GDPR)
+
+---
+
+## Practical Example: Medical Record Processing
+
+| **Task** | **BERT Approach** | **LLM Approach** |
+|----------|-------------------|------------------|
+| **Classify section** | Fine-tune on 1000+ labeled examples | Provide 20 categories in prompt, zero-shot |
+| **Extract medications** | Train NER model on medical entities | Prompt: "Extract all medications with dosages as JSON" |
+| **Generate summary** | Not possible (BERT is encoder-only) | Natural summarization with diagnosis highlighting |
+| **Detect errors** | Requires separate error detection model | Ask: "Are there any contradictions or missing information?" |
+| **Update for new category** | Retrain model with new labeled data | Add category to prompt instruction |
