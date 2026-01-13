@@ -1,0 +1,126 @@
+# CBSA ZIP Enrichment
+GET zip_county_cbsa_lookup/_search
+PUT /_enrich/policy/zip_cbsa_policy
+{
+  "match": {
+    "indices": "zip_county_cbsa_lookup",
+    "match_field": "zcta5ce20",
+    "enrich_fields": [
+      "cbsa_name",
+      "county_name"
+    ]
+  }
+}
+POST _enrich/policy/zip_cbsa_policy/_execute
+
+
+# RVU Enrichment
+PUT /_enrich/policy/hcpcs_rvu_policy
+{
+  "match": {
+    "indices": "hcpcs_rvu_lookup",
+    "match_field": "hcpcs_cd",
+    "enrich_fields": [
+      "year",
+      "description",
+      "status_code",
+      "is_active",
+      "work_rvu",
+      "non_facility_pe_rvu",
+      "facility_pe_rvu",
+      "malpractice_rvu",
+      "non_facility_total_rvu",
+      "facility_total_rvu",
+      "global_period",
+      "pc_tc_indicator",
+      "conversion_factor",
+      "non_facility_national_payment",
+      "facility_national_payment"
+    ]
+  }
+}
+POST _enrich/policy/hcpcs_rvu_policy/_execute
+
+
+PUT /_enrich/policy/hcpcs_rbcs_policy
+{
+  "match": {
+    "indices": "hcpcs_rbcs_lookup",
+    "match_field": "hcpcs_cd",
+    "enrich_fields": [
+      "rbcs_id",
+      "rbcs_cat",
+      "rbcs_cat_desc",
+      "rbcs_cat_subcat",
+      "rbcs_subcat_desc",
+      "rbcs_famnumb",
+      "rbcs_family_desc",
+      "rbcs_major_ind",
+      "hcpcs_cd_add_dt",
+      "hcpcs_cd_end_dt",
+      "rbcs_latest_assignment",
+      "first_rbcs_release_year",
+      "rbcs_analysis_start_dt",
+      "rbcs_analysis_end_dt",
+      "alt_assignment_method",
+      "rbcs_id_ever_reassigned"
+    ]
+  }
+}
+
+POST /_enrich/policy/hcpcs_rbcs_policy/_execute
+
+# Create ingest pipeline
+PUT _ingest/pipeline/hcpcs_enrichment
+{
+  "description": "Enrich HCPCS codes with RVU and RBCS data",
+  "processors": [
+    {
+      "enrich": {
+        "policy_name": "hcpcs_rvu_policy",
+        "field": "hcpcs_code",
+        "target_field": "rvu_data",
+        "max_matches": "1",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "enrich": {
+        "policy_name": "hcpcs_rbcs_policy",
+        "field": "hcpcs_code",
+        "target_field": "rbcs_data",
+        "max_matches": "1",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },    {
+      "enrich": {
+        "policy_name": "zip_cbsa_policy",
+        "field": "rndrng_prvdr_zip5",
+        "target_field": "cbsa_data",
+        "max_matches": "1",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    }
+  ]
+}
+GET hcpcs_rvu_lookup/_search
+
+DELETE your-index
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{"hcpcs_code":"J1745","rndrng_prvdr_zip5":"60601"}
+
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{"hcpcs_code":"D5987","rndrng_prvdr_zip5":"11368"}
+
+
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{"hcpcs_code":"G0438","rndrng_prvdr_zip5":"90210"}
+
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{"hcpcs_code":"99214","rndrng_prvdr_zip5":"98101"}
+
+ # Zip codes from major urban areas  CBSA ('60601', '10001', '90210', '30301', '98101')
+GET your-index/_search
