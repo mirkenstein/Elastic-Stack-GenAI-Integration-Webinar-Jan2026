@@ -285,10 +285,7 @@ kubectl apply -k k8s/provider-services/
 ```
 
 2. **Create Enrichment Policies**
-```bash
-# Execute commands from HCPCS_CBSA_ENRICHMENT_DEMO.md
-```
-
+ 
 3. **Setup LLM Inference**
 ```bash
 # Option A: Self-hosted endpoint (recommended for production)

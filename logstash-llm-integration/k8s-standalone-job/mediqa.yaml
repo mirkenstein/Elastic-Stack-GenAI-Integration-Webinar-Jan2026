@@ -1,0 +1,399 @@
+# MEDIQA Medical Dialogue Classification Job
+# Classifies doctor-patient conversations into 20 medical categories using phi4-mini
+# Usage: kubectl apply -f mediqa.yaml
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mediqa-config
+  namespace: ollama
+data:
+  logstash.yml: |
+    pipeline.workers: 1
+    pipeline.batch.size: 1
+    pipeline.batch.delay: 50
+
+  logstash.conf: |
+    input {
+      file {
+        path => "/data/input/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv"
+        start_position => "beginning"
+        sincedb_path => "/dev/null"
+        mode => "read"
+        exit_after_read => true
+        codec => multiline {
+          pattern => '^\d+,'
+          negate => true
+          what => "previous"
+          auto_flush_interval => 1
+        }
+      }
+    }
+
+    filter {
+      # Skip CSV header
+      if [message] =~ /^ID,/ {
+        drop { }
+      }
+
+      # Normalize line endings
+      mutate {
+        gsub => [
+          "message", '\r\n', '\n',
+          "message", '\r', ''
+        ]
+      }
+
+      # Parse CSV with ruby - handles both quoted and unquoted section_text
+      # Format: ID,SECTION_HEADER,section_text (maybe quoted),"dialogue (always quoted)"
+      ruby {
+        code => '
+          msg = event.get("message")
+          next unless msg
+
+          # The dialogue field starts with ," followed by a speaker (word + colon) and ends with "
+          # Speakers can be: Doctor, Patient, Guest_clinician, Guest_family, etc.
+          # Note: Some records have escaped quotes at start (,""" = ," + "" escaped quote)
+          dialogue_match = msg.match(/,\"\"{0,2}((?:Doctor|Patient|Guest_clinician|Guest_family):.*)\"$/m)
+
+          if dialogue_match
+            dialogue = dialogue_match[1]
+            rest = msg[0...dialogue_match.begin(0)]
+
+            # rest is now: ID,SECTION_HEADER,section_text (possibly quoted)
+            # Split on first two commas only
+            parts = rest.split(",", 3)
+
+            if parts.length >= 3
+              event.set("row_id", parts[0].strip)
+              event.set("expected_section_header", parts[1].strip)
+
+              # section_text might have surrounding quotes - remove them
+              section_text = parts[2].strip
+              if section_text.start_with?("\"") && section_text.end_with?("\"")
+                section_text = section_text[1..-2]
+              end
+              event.set("expected_section_text", section_text)
+              event.set("dialogue", dialogue)
+            end
+          end
+        '
+      }
+
+      # Skip if parsing failed
+      if ![dialogue] or [dialogue] == "" {
+        drop { }
+      }
+
+      # Normalize newlines in fields
+      mutate {
+        gsub => [
+          "dialogue", "\n", " ",
+          "expected_section_text", "\n", " "
+        ]
+        strip => ["dialogue", "expected_section_text"]
+      }
+
+      # Store original dialogue
+      mutate {
+        add_field => { "original_dialogue" => "%{dialogue}" }
+      }
+
+      # Escape quotes for JSON
+      mutate {
+        gsub => [
+          "dialogue", '"', '\"',
+          "dialogue", "\n", "\\n",
+          "dialogue", "\r", ""
+        ]
+      }
+
+      # Call Ollama with phi4-mini model
+      http {
+        url => "http://localhost:11434/v1/chat/completions"
+        verb => "POST"
+        headers => {
+          "Content-Type" => "application/json"
+        }
+        body => '{
+          "model": "phi4-mini",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a medical documentation classifier. You analyze doctor-patient conversations and output ONLY valid JSON with no markdown formatting."
+            },
+            {
+              "role": "user",
+              "content": "Analyze this doctor-patient conversation and perform these tasks:\n\n1. Identify the PRIMARY diagnosis or medical concern\n2. Classify into exactly ONE of these 20 category codes:\n   - fam_sochx (Family/Social History)\n   - genhx (History of Present Illness)\n   - pastmedicalhx (Past Medical History)\n   - cc (Chief Complaint)\n   - pastsurgical (Past Surgical History)\n   - allergy\n   - ros (Review of Systems)\n   - medications\n   - assessment\n   - exam\n   - diagnosis\n   - disposition\n   - plan\n   - edcourse (Emergency Department Course)\n   - immunizations\n   - imaging\n   - gynhx (Gynecologic History)\n   - procedures\n   - other_history\n   - labs\n\n3. Write a brief clinical summary (2-3 sentences) with the diagnosis at the beginning\n\nIMPORTANT: Output ONLY a valid JSON object. No markdown, no code blocks, no explanation.\n\nRequired JSON format:\n{\"section_header\": \"category_code\", \"section_text\": \"Diagnosis: [diagnosis]. [Brief summary]\"}\n\nConversation:\n%{dialogue}"
+            }
+          ],
+          "temperature": 0.3
+        }'
+        body_format => "json"
+        target_body => "ollama_response"
+        connect_timeout => 30
+        request_timeout => 120
+        socket_timeout => 120
+        pool_max => 1
+      }
+
+      # Parse LLM response
+      ruby {
+        code => '
+          response = event.get("ollama_response")
+
+          if response.is_a?(Hash) && response["choices"] && response["choices"][0]
+            content = response["choices"][0]["message"]["content"].strip
+
+            json_match = content.match(/\{[^{}]*"section_header"[^{}]*"section_text"[^{}]*\}/m)
+
+            if json_match
+              begin
+                parsed = JSON.parse(json_match[0])
+                event.set("generated_section_header", parsed["section_header"])
+                event.set("generated_section_text", parsed["section_text"])
+                event.set("llm_raw_response", content)
+                event.set("parse_status", "success")
+              rescue JSON::ParserError => e
+                event.set("generated_section_header", "parse_error")
+                event.set("generated_section_text", "Failed to parse JSON: #{e.message}")
+                event.set("llm_raw_response", content)
+                event.set("parse_status", "json_parse_error")
+              end
+            else
+              event.set("generated_section_header", "no_json_found")
+              event.set("generated_section_text", content)
+              event.set("llm_raw_response", content)
+              event.set("parse_status", "no_json_in_response")
+            end
+          else
+            event.set("generated_section_header", "llm_error")
+            event.set("generated_section_text", "No valid response from Ollama")
+            event.set("llm_raw_response", response.to_s)
+            event.set("parse_status", "ollama_error")
+          end
+        '
+      }
+
+      # Cleanup
+      mutate {
+        remove_field => ["ollama_response", "message", "dialogue", "@version", "host", "log", "event"]
+      }
+    }
+
+    output {
+      stdout {
+        codec => rubydebug
+      }
+
+      file {
+        path => "/output/mediqa-classifications.json"
+        codec => json_lines
+      }
+
+      if [parse_status] != "success" {
+        file {
+          path => "/output/mediqa-failures.json"
+          codec => json_lines
+        }
+      }
+    }
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-etl-mediqa
+  namespace: ollama
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+
+  template:
+    metadata:
+      labels:
+        app: ollama-etl-mediqa
+    spec:
+      restartPolicy: Never
+      shareProcessNamespace: true
+
+      # Init container: download model
+      initContainers:
+      - name: model-loader
+        image: ollama/ollama:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "=== Downloading phi4-mini model ==="
+          ollama serve &
+          OLLAMA_PID=$!
+
+          for i in $(seq 1 30); do
+            if ollama list > /dev/null 2>&1; then
+              echo "Ollama ready"
+              break
+            fi
+            sleep 2
+          done
+
+          ollama pull phi4-mini
+          kill $OLLAMA_PID 2>/dev/null || true
+          echo "=== Model ready ==="
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /root/.ollama
+        resources:
+          limits:
+            memory: "6Gi"
+            cpu: "2"
+          requests:
+            memory: "4Gi"
+            cpu: "1"
+
+      containers:
+      # Ollama: serves the LLM
+      - name: ollama
+        image: ollama/ollama:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          ollama serve &
+          OLLAMA_PID=$!
+          echo "Ollama started"
+
+          # Wait for Logstash to start then finish
+          while ! pgrep java > /dev/null 2>&1; do sleep 2; done
+          echo "Logstash running..."
+          while pgrep java > /dev/null 2>&1; do sleep 5; done
+
+          echo "Logstash done, shutting down"
+          kill $OLLAMA_PID 2>/dev/null || true
+        ports:
+        - containerPort: 11434
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /root/.ollama
+        resources:
+          limits:
+            memory: "8Gi"
+            cpu: "6"
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0:11434"
+
+      # Logstash: ETL processing
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:9.2.3
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "=== MEDIQA Classification Job ==="
+
+          # Wait for Ollama
+          until curl -s http://localhost:11434/ > /dev/null; do
+            echo "Waiting for Ollama..."
+            sleep 2
+          done
+          echo "Ollama ready"
+
+          # Verify model
+          if curl -s http://localhost:11434/api/tags | grep -q phi4-mini; then
+            echo "phi4-mini model available"
+          else
+            echo "Model not found!"
+            curl -s http://localhost:11434/api/tags
+            exit 1
+          fi
+
+          # Check input file - download from GitHub if not present
+          if [ ! -f /data/input/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv ]; then
+            echo "Input CSV not found, downloading from GitHub..."
+            mkdir -p /data/input
+            curl -fsSL -o /data/input/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv \
+              "https://raw.githubusercontent.com/abachaa/MTS-Dialog/refs/heads/main/Main-Dataset/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv"
+            if [ $? -ne 0 ]; then
+              echo "ERROR: Failed to download CSV"
+              exit 1
+            fi
+            sync
+            echo "Downloaded successfully"
+          fi
+
+          # Verify file integrity
+          echo "File checksum: $(md5sum /data/input/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv)"
+
+          echo "Input: $(wc -l < /data/input/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv) lines"
+          echo "Starting at $(date)"
+
+          # Run pipeline
+          /usr/share/logstash/bin/logstash \
+            --path.settings /etc/logstash \
+            -f /usr/share/logstash/pipeline/logstash.conf
+
+          EXIT_CODE=$?
+          echo "=== Completed at $(date) ==="
+
+          # Show results
+          if [ -f /output/mediqa-classifications.json ]; then
+            echo "Output: $(wc -l < /output/mediqa-classifications.json) records"
+          fi
+          if [ -f /output/mediqa-failures.json ]; then
+            echo "Failures: $(wc -l < /output/mediqa-failures.json)"
+          fi
+
+          echo "Results available for 5 minutes..."
+          sleep 300
+          exit $EXIT_CODE
+
+        volumeMounts:
+        - name: config
+          mountPath: /usr/share/logstash/pipeline/logstash.conf
+          subPath: logstash.conf
+        - name: settings
+          mountPath: /etc/logstash
+        - name: data
+          mountPath: /data/input
+          subPath: input
+        - name: data
+          mountPath: /output
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+          requests:
+            memory: "1Gi"
+            cpu: "1"
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xmx1g -Xms1g"
+        - name: XPACK_MONITORING_ENABLED
+          value: "false"
+
+      volumes:
+      - name: config
+        configMap:
+          name: mediqa-config
+          items:
+          - key: logstash.conf
+            path: logstash.conf
+      - name: settings
+        configMap:
+          name: mediqa-config
+          items:
+          - key: logstash.yml
+            path: logstash.yml
+      - name: data
+        hostPath:
+          path: /mnt/ollama-etl-output
+          type: DirectoryOrCreate
+      - name: ollama-models
+        persistentVolumeClaim:
+          claimName: ollama-models-pvc

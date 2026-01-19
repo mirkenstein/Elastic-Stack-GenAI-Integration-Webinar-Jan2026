@@ -1,0 +1,246 @@
+# Demo Job: Classifies 5 sample sentences using Ollama LLM
+# Usage: kubectl apply -f demo.yaml
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-config
+  namespace: ollama
+data:
+  logstash.yml: |
+    pipeline.workers: 1
+    pipeline.batch.size: 1
+    pipeline.batch.delay: 50
+
+  input.txt: |
+    This is an amazing product! I love it so much.
+    I'm very disappointed with the service.
+    The weather today is partly cloudy.
+    What time does the store open?
+    Machine learning is a subset of artificial intelligence.
+
+  logstash.conf: |
+    input {
+      file {
+        path => "/data/input.txt"
+        start_position => "beginning"
+        sincedb_path => "/dev/null"
+        mode => "read"
+        exit_after_read => true
+      }
+    }
+
+    filter {
+      http {
+        url => "http://localhost:11434/v1/chat/completions"
+        verb => "POST"
+        headers => {
+          "Content-Type" => "application/json"
+        }
+        body => '{
+          "model": "phi4-mini",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a text classifier. Classify the following text into one of these categories: positive, negative, neutral, question, statement. Reply with ONLY the category name."
+            },
+            {
+              "role": "user",
+              "content": "%{message}"
+            }
+          ]
+        }'
+        body_format => "json"
+        target_body => "ollama_response"
+      }
+
+      ruby {
+        code => '
+          if event.get("ollama_response")
+            response = event.get("ollama_response")
+            if response.is_a?(Hash) && response["choices"] && response["choices"][0]
+              classification = response["choices"][0]["message"]["content"].strip.downcase
+              event.set("classification", classification)
+              event.set("original_text", event.get("message"))
+            end
+          end
+        '
+      }
+
+      mutate {
+        remove_field => ["ollama_response", "@version", "host", "log", "event"]
+      }
+    }
+
+    output {
+      stdout {
+        codec => rubydebug
+      }
+
+      file {
+        path => "/output/classifications.json"
+        codec => json_lines
+      }
+    }
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-etl-demo
+  namespace: ollama
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+
+  template:
+    metadata:
+      labels:
+        app: ollama-etl-demo
+    spec:
+      restartPolicy: Never
+      shareProcessNamespace: true
+
+      initContainers:
+      - name: model-loader
+        image: ollama/ollama:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "=== Downloading phi4-mini model ==="
+          ollama serve &
+          OLLAMA_PID=$!
+
+          for i in $(seq 1 30); do
+            if ollama list > /dev/null 2>&1; then
+              echo "Ollama ready"
+              break
+            fi
+            sleep 2
+          done
+
+          ollama pull phi4-mini
+          kill $OLLAMA_PID 2>/dev/null || true
+          echo "=== Model ready ==="
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /root/.ollama
+        resources:
+          limits:
+            memory: "6Gi"
+            cpu: "2"
+          requests:
+            memory: "4Gi"
+            cpu: "1"
+
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          ollama serve &
+          OLLAMA_PID=$!
+          echo "Ollama started"
+
+          # Wait for Logstash to finish
+          while ! pgrep java > /dev/null 2>&1; do sleep 2; done
+          while pgrep java > /dev/null 2>&1; do sleep 5; done
+
+          echo "Done"
+          kill $OLLAMA_PID 2>/dev/null || true
+        ports:
+        - containerPort: 11434
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /root/.ollama
+        resources:
+          limits:
+            memory: "8Gi"
+            cpu: "6"
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0:11434"
+
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:9.2.3
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "=== Demo Classification Job ==="
+
+          # Wait for Ollama
+          until curl -s http://localhost:11434/ > /dev/null; do
+            echo "Waiting for Ollama..."
+            sleep 2
+          done
+          echo "Ollama ready"
+
+          # Verify model
+          if curl -s http://localhost:11434/api/tags | grep -q phi4-mini; then
+            echo "Model available"
+          else
+            echo "Model not found!"
+            exit 1
+          fi
+
+          # Run pipeline
+          /usr/share/logstash/bin/logstash \
+            --path.settings /etc/logstash \
+            -f /usr/share/logstash/pipeline/logstash.conf
+
+          echo "=== Complete ==="
+          cat /output/classifications.json
+          sleep 60
+        volumeMounts:
+        - name: config
+          mountPath: /usr/share/logstash/pipeline/logstash.conf
+          subPath: logstash.conf
+        - name: config
+          mountPath: /data/input.txt
+          subPath: input.txt
+        - name: settings
+          mountPath: /etc/logstash
+        - name: output
+          mountPath: /output
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+          requests:
+            memory: "1Gi"
+            cpu: "1"
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xmx1g -Xms1g"
+        - name: XPACK_MONITORING_ENABLED
+          value: "false"
+
+      volumes:
+      - name: config
+        configMap:
+          name: demo-config
+          items:
+          - key: logstash.conf
+            path: logstash.conf
+          - key: input.txt
+            path: input.txt
+      - name: settings
+        configMap:
+          name: demo-config
+          items:
+          - key: logstash.yml
+            path: logstash.yml
+      - name: output
+        emptyDir: {}
+      - name: ollama-models
+        persistentVolumeClaim:
+          claimName: ollama-models-pvc
