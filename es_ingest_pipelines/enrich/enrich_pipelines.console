@@ -109,18 +109,31 @@ PUT _ingest/pipeline/hcpcs_enrichment
 GET hcpcs_rvu_lookup/_search
 
 DELETE your-index
-POST /your-index/_doc?pipeline=hcpcs_enrichment
-{"hcpcs_code":"J1745","rndrng_prvdr_zip5":"60601"}
 
+# E&M
 POST /your-index/_doc?pipeline=hcpcs_enrichment
-{"hcpcs_code":"D5987","rndrng_prvdr_zip5":"11368"}
-
-
+{
+  "hcpcs_cd": "99215",
+  "rndrng_prvdr_zip5": "11368"
+}
+# Reading X-ray
 POST /your-index/_doc?pipeline=hcpcs_enrichment
-{"hcpcs_code":"G0438","rndrng_prvdr_zip5":"90210"}
-
+{
+  "hcpcs_cd": "71046",
+  "rndrng_prvdr_zip5": "60601"
+}
+# Cardio CABG
 POST /your-index/_doc?pipeline=hcpcs_enrichment
-{"hcpcs_code":"99214","rndrng_prvdr_zip5":"98101"}
+{
+  "hcpcs_cd": "33533",
+  "rndrng_prvdr_zip5": "90210"
+}
+
+# Explore the newly ingested data
+GET your-index/_search
+
+GET your-index/_search
+{"_source": ["hcpcs_cd","rvu_data.facility_total_rvu"]} 
 
  # Zip codes from major urban areas  CBSA ('60601', '10001', '90210', '30301', '98101')
 GET your-index/_search
