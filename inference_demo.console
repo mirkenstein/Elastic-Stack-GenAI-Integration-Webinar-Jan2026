@@ -1,0 +1,220 @@
+
+
+
+###########################
+# DEMO Inference Pipeline
+###########################
+DELETE  _inference/completion/claude-opus
+PUT _inference/completion/claude-opus
+{
+  "service": "anthropic",
+  "service_settings": {
+    "api_key": "${antropic_api_key}",
+    "model_id": "claude-opus-4-5"
+  },
+  "task_settings": {
+    "max_tokens": 2048
+  }
+}
+GET _inference/completion/*?format=yaml
+ 
+# Test Completion
+POST _inference/completion/claude-opus
+{
+  "input": "Tell me a joke about lipids?"
+}
+
+# Note For locally hosted models
+# Ollama OpenAI
+PUT _inference/completion/ollama-completion-gemma3
+{
+    "service": "openai",
+    "service_settings": {
+        "api_key": "${LOCAL_LLM_API_KEY}",
+        "model_id": "gemma3",
+        "url": "${LOCAL_INFERENCE_COMPLETIONURL}"
+    }
+}
+
+PUT _inference/completion/ollama-completion-phi4-mini
+{
+    "service": "openai",
+    "service_settings": {
+        "api_key": "${LOCAL_LLM_API_KEY}",
+        "model_id": "phi4-mini",
+        "url": "${LOCAL_INFERENCE_COMPLETIONURL}"
+    }
+}
+POST _inference/completion/ollama-completion-phi4-mini
+{
+  "input": "Tell me a joke about lipids?"
+}
+
+GET _inference/completion/*?format=yaml
+PUT _inference/completion/openai-completion-gpt-3.5-turbo
+{
+    "service": "openai",
+    "service_settings": {
+        "api_key": "${OPEN_AI_API_KEY}",
+        "model_id": "gpt-3.5-turbo"
+    }
+}
+
+#######
+
+##########################################
+# Create pipeline with LLM Proccessor
+#########################################3
+DELETE  _ingest/pipeline/llm-classification
+PUT _ingest/pipeline/llm-classification
+{
+  "description": "LLM Text Topic and Categorization pipeline",
+  "processors": [
+    {
+      "script": {
+        "source": "ctx.prompt = 'Please provide short summary and diagnose. Put the diagnose at the beginning. Also categorize the transcribed doctor patient conversation into just one  of these 20 categories.(  1. fam_sochx [FAMILY HISTORY/SOCIAL HISTORY], 2. genhx [HISTORY of PRESENT ILLNESS], 3. pastmedicalhx [PAST MEDICAL HISTORY], 4. cc [CHIEF COMPLAINT], 5. pastsurgical [PAST SURGICAL HISTORY], 6. allergy , 7. ros [REVIEW OF SYSTEMS],  8. medications, 9. assessment, 10. exam, 11. diagnosis, 12. disposition, 13. plan, 14. edcourse [EMERGENCY DEPARTMENT COURSE], 15. immunizations, 16. imaging, 17. gynhx [GYNECOLOGIC HISTORY], 18. procedures, 19. other_history, 20. labs )  Output shoulkd be a pure JSON string wihtout the markdown format and without the json srtring. Just this: {\"section_header\": \"one of the 20 categories\",\"section_text\":\"short summary\"} : ' + ctx.text"
+      }
+    },
+    {
+      "inference": {
+        "model_id": "ollama-completion-phi4-mini",
+        "input_output": {
+          "input_field": "prompt",
+          "output_field": "generated"
+        }
+      }
+    },
+    {
+      "remove": {
+        "field": "prompt"
+      }
+    },
+    {
+      "json": {
+        "field": "generated",
+        "target_field": "json_target"
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": {
+        "description": "Index document to 'failed-<index>'",
+        "field": "_index",
+        "value": "failed-{{{_index}}}"
+      }
+    },
+    {
+      "set": {
+        "description": "Set error message",
+        "field": "ingest.failure",
+        "value": "{{_ingest.on_failure_message}}"
+      }
+    }
+  ]
+}
+
+PUT _ingest/pipeline/llm-classification-anthropic
+{
+  "description": "LLM Text Topic and Categorization pipeline",
+  "processors": [
+    {
+      "script": {
+        "source": "ctx.prompt = 'Please provide short summary and diagnose. Put the diagnose at the beginning. Also categorize the transcribed doctor patient conversation into just one  of these 20 categories.(  1. fam_sochx [FAMILY HISTORY/SOCIAL HISTORY], 2. genhx [HISTORY of PRESENT ILLNESS], 3. pastmedicalhx [PAST MEDICAL HISTORY], 4. cc [CHIEF COMPLAINT], 5. pastsurgical [PAST SURGICAL HISTORY], 6. allergy , 7. ros [REVIEW OF SYSTEMS],  8. medications, 9. assessment, 10. exam, 11. diagnosis, 12. disposition, 13. plan, 14. edcourse [EMERGENCY DEPARTMENT COURSE], 15. immunizations, 16. imaging, 17. gynhx [GYNECOLOGIC HISTORY], 18. procedures, 19. other_history, 20. labs )  Output shoulkd be a pure JSON string wihtout the markdown format and without the json srtring. Just this: {\"section_header\": \"one of the 20 categories\",\"section_text\":\"short summary\"} : ' + ctx.text"
+      }
+    },
+    {
+      "inference": {
+        "model_id": "claude-opus",
+        "input_output": {
+          "input_field": "prompt",
+          "output_field": "generated"
+        }
+      }
+    },
+    {
+      "remove": {
+        "field": "prompt"
+      }
+    },
+    {
+      "json": {
+        "field": "generated",
+        "target_field": "json_target"
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": {
+        "description": "Index document to 'failed-<index>'",
+        "field": "_index",
+        "value": "failed-{{{_index}}}"
+      }
+    },
+    {
+      "set": {
+        "description": "Set error message",
+        "field": "ingest.failure",
+        "value": "{{_ingest.on_failure_message}}"
+      }
+    }
+  ]
+}
+# Try with the first 3 entries from the MTS Dataset
+POST _ingest/pipeline/llm-classification/_simulate
+{
+  "docs": [
+    {
+      "_source": {
+        "text":  "Doctor: Good afternoon, sir. Did you just have a birthday? I don't have my chart with me right now, the nurse is bringing it. Patient: Good afternoon, sir. Yes, I just turned fifty five. Doctor: You identify as African American, correct? Patient: Yes, that's right. Doctor: When was your last visit, sir? Patient: Um, it was on July twenty ninth two thousand eight. Doctor: Yes, I see. Did we go over your M R I results? Patient: No, I was having those new seizures, remember? Doctor: Yes, I do. Well, the M R I demonstrated right contrast temporal mass. Patient: What exactly does that mean, doctor? Doctor: Well, given this mass, and your new seizures, I am concerned that this could be a high grade glioma, we'll need to do more tests."
+      }
+    }
+  ]
+}
+
+POST _ingest/pipeline/llm-classification-anthropic/_simulate
+POST _ingest/pipeline/llm-classification/_simulate
+{
+  "docs": [
+    {
+      "_source": {
+        "text":  "Doctor: Any medical issues running in your families? Patient: Oh yes, stroke. Doctor: Anything else? Patient: Sleep apnea."
+      }
+    }
+  ]
+}
+
+
+POST _ingest/pipeline/llm-classification/_simulate
+{
+  "docs": [
+    {
+      "_source": {
+        "text":  "Doctor: Any pain in your muscles? Patient: No, no pain. Doctor: How about joint pain? Patient: Um no, I don't feel any joint pain. Doctor: Okay, good. Doctor: Do you feel any stiffness or weakness in your muscle? Patient: Um, nothing like that. Doctor: Do you have any back pain? Patient: No. Doctor: Okay."
+      }
+    }
+  ]
+}
+
+# Large Input comparison
+# ID 31
+
+POST _ingest/pipeline/llm-classification-anthropic/_simulate
+POST _ingest/pipeline/llm-classification/_simulate
+{
+  "docs": [
+    {
+      "_source": {
+        "text": "Doctor: Hi there! I am Doctor Jones, sir. Patient: Hello! It is nice to meet you. Doctor: What brings you into see me today? Patient: I have had this weakness in my right leg for quite some time now. Doctor: How long has this been going on and do you know how you injured yourself? Patient: I think that it was about six months ago that the weakness in my leg started. I don't really remember how it happened. Doctor: Can you tell me what you do remember? Patient: I was reaching to get something from a cabinet, and I noticed that I was unable to stand on my right toe. Ever since then I have had difficulty pushing off when walking. My toes were tingling and numb. Doctor: Was the numbness and tingling mild, moderate, or severe? Patient: It was a mild feeling, but this has been an ongoing problem that has been the same since the weakness started. Doctor: Have you had any other pain any where else in your body? Patient: I have had back pain, but this has been going on for many years and has not changed. Doctor: Is the back pain been mild, moderate, or severe? Patient: I would say mild. I have also been having cramping in both calves. Doctor: How long has that been going on? Patient: For the past year but it stopped about two months ago. Doctor: Have you had any weakness in the left leg? Patient: No. I don't think so. Doctor: Have you had any pain around right leg and the area of numbness and tingling? Patient: No. Everything that is going on with my right leg has pretty much been the same since it started six months ago. I have not gotten worse or better. Doctor: Have you had any bowel or bladder incontinence? Any radicular pain? Patient: No. Doctor: When did you first see a doctor for the issue? I remember that you told me you saw a different provider prior to coming to see me. Patient: I saw the other doctor in October. That was a couple of months before I came to see you. Doctor: I see in your chart that we did a CT scan that shows degenerative changes, but nothing obviously abnormal. Remind me why we did not do a MRI of your spine? Patient: I cannot have an MRI because of my ear implant. Doctor: That is unfortunate. It looks like we were able to do an EMG and nerve conduction studies. What medications are you taking currently? Patient: I had an elevated CK before I started taking stat medications. Doctor: What medications are those? Patient: I am not taking Lipitor anymore. I think I took it for about fifteen months. Doctor: Do you know what your levels of your CK were before you started taking medication? Patient: I thought that my CK was in the five hundred or six hundreds prior to starting it. Once I started it, my levels increased to about eight hundred and then came down to about five hundred again when it was stopped. I recently stopped taking Lipitor because my levels were up to the thousand's and then my CK apparently has returned to about the five hundreds or six hundreds. Doctor: I don't see any labs in your chart. Did your primary do labs for your CK levels? Patient: Yes, he did. Doctor: Okay. Have you started any other medications? Patient: Yes, I just started Zetia. Doctor: Have you experienced any weakness or pain after starting Zetia? Patient: No. Doctor: Can you remind me how old you are? Patient: I am fifty-five."
+              }
+    }
+  ]
+}
+
+
+
+GET _cat/ml/trained_models?v
+GET _ml/trained_models/_all/_stats
+GET _ml/trained_models/_all/_stats?filter_path=**.model_id,**.deployment_id&format=yaml
+GET _ml/trained_models
