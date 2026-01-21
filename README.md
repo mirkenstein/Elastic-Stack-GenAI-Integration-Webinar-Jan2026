@@ -20,8 +20,8 @@ This repository contains demonstration materials showcasing secure, scalable int
 ### Key Principles
 
 - **Security First**: All architectures support on-premise, air-gapped deployment
-- **Privacy by Design**: PHI never leaves your infrastructure
-- **Scalability**: Horizontal scaling patterns for multi-million record datasets
+- **Privacy by Design**: Data never leaves your infrastructure
+- **Scalability**: Horizontal scaling patterns for multi-billion record ingestion
 - **Flexibility**: Support for cloud APIs, self-hosted models, and embedded ML
 - **Production Ready**: Real-world patterns tested with [CMS Medicare Provider Services](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners/medicare-physician-other-practitioners-by-provider-and-service) datasets (9M+ records)
 
@@ -121,7 +121,7 @@ PUT _inference/completion/local-llm
   "service": "openai",
   "service_settings": {
     "url": "https://internal-llm.yourcompany.com/v1/chat/completions",
-    "model_id": "medllama-finetuned"
+    "model_id": "llama-finetuned"
   }
 }
 ```
@@ -316,40 +316,6 @@ kubectl apply -f k8s/llm-etl-job.yaml
     └── llm-etl-job.yaml          # Same-pod LLM job
 ```
 
----
-
-## Security Best Practices
-
-### 1. Data in Transit
-- Use TLS 1.3 for all connections
-- Implement mutual TLS (mTLS) between services
-- Consider AWS PrivateLink or Azure Private Endpoint for cloud APIs
-
-### 2. Data at Rest
-- Enable Elasticsearch encryption at rest
-- Use encrypted PersistentVolumes for model storage
-- Implement key rotation policies
-
-### 3. Access Control
-- Use Elasticsearch RBAC for fine-grained permissions
-- Implement Kubernetes RBAC for pod access
-- Rotate API keys regularly (if using external LLMs)
-
-### 4. Network Isolation
-- Deploy services in private subnets
-- Use Network Policies to restrict pod-to-pod communication
-- Implement egress filtering to prevent data exfiltration
-
-### 5. Model Security
-- Verify model checksums before loading
-- Use signed container images for LLM services
-- Implement model versioning and audit trails
-
-### 6. PHI Handling
-- Anonymize/de-identify data when possible
-- Implement field-level access control
-- Audit all access to sensitive fields
-- Consider differential privacy techniques for aggregations
 
 ---
 
@@ -374,28 +340,7 @@ kubectl apply -f k8s/llm-etl-job.yaml
 
 ---
 
-## Use Cases
-
-### Clinical Documentation
-- Automated section classification (CC, HPI, Assessment, Plan)
-- SOAP note generation from transcripts
-- ICD-10/CPT code suggestion
-
-### Healthcare Analytics
-- Service utilization patterns by geography
-- RVU-based cost analysis
-- Procedure category trends
-
-### Regulatory Compliance
-- Automated quality reporting (MIPS, HEDIS)
-- Risk adjustment coding validation
-- Clinical documentation improvement (CDI)
-
-### Research & Population Health
-- Cohort identification from unstructured notes
-- Outcome analysis with geographic correlation
-- Social determinants of health (SDOH) extraction
-
+ 
 ---
 
 ## Contributing
@@ -447,6 +392,6 @@ This repository demonstrates a **comprehensive, security-first approach** to int
 - **AI-powered analysis** (inference processors)
 - **Privacy-preserving architecture** (self-hosted models, same-pod execution)
 
-Organizations can build powerful AI-driven healthcare analytics systems while maintaining complete control over Protected Health Information (PHI) and meeting stringent regulatory requirements.
+Organizations can build powerful AI-driven healthcare analytics systems while maintaining complete control over their data and meeting stringent regulatory requirements.
 
 **Key Takeaway**: You can leverage cutting-edge LLM capabilities without sacrificing data privacy or security by choosing the right architectural patterns and deployment models.
