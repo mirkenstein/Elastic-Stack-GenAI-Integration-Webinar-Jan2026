@@ -391,9 +391,8 @@ spec:
           - key: logstash.yml
             path: logstash.yml
       - name: data
-        hostPath:
-          path: /mnt/ollama-etl-output
-          type: DirectoryOrCreate
+        persistentVolumeClaim:
+          claimName: ollama-etl-data-pvc
       - name: ollama-models
         persistentVolumeClaim:
           claimName: ollama-models-pvc

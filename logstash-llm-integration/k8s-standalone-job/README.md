@@ -7,7 +7,7 @@ Run LLM-powered ETL pipelines on Kubernetes using Logstash and Ollama. No comple
 | File | Description |
 |------|-------------|
 | `00-namespace.yaml` | Creates the `ollama` namespace |
-| `01-storage.yaml` | Persistent storage for Ollama models (download once, reuse) |
+| `01-storage.yaml` | Persistent storage for Ollama models and ETL input/output |
 | `demo.yaml` | Quick demo: classifies 5 sample sentences |
 | `mediqa.yaml` | Medical dialogue classification using phi4-mini model |
 
@@ -33,6 +33,8 @@ kubectl get pvc -n ollama
 
 ### 2. Run Demo Job
 
+The demo job includes sample data - no external files needed:
+
 ```shell
 kubectl apply -f demo.yaml
 
@@ -45,7 +47,7 @@ kubectl exec -n ollama -it $(kubectl get pod -n ollama -l app=ollama-etl-demo -o
 
 ### 3. Run MEDIQA Job
 
-The job auto-downloads the CSV from GitHub if not present:
+The job auto-downloads the [MTS-Dialog dataset](https://github.com/abachaa/MTS-Dialog) from GitHub if not present:
 
 ```shell
 # Just run the job - CSV downloads automatically
@@ -55,10 +57,13 @@ kubectl apply -f mediqa.yaml
 kubectl logs -n ollama -f -l app=ollama-etl-mediqa -c logstash
 ```
 
-**Alternative**: Pre-copy the CSV file to the cluster (useful for air-gapped environments):
+**Alternative**: Pre-copy the CSV file to the cluster (useful for air-gapped environments or local testing):
 
 ```shell
-# For Minikube
+# Download the dataset manually
+curl -LO https://raw.githubusercontent.com/abachaa/MTS-Dialog/main/Main-Dataset/MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv
+
+# For Minikube - copy to cluster
 minikube ssh -- sudo mkdir -p /mnt/ollama-etl-output/input
 minikube cp ./MTS-Dialog-TestSet-1-MEDIQA-Chat-2023.csv /mnt/ollama-etl-output/input/
 

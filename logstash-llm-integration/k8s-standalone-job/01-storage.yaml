@@ -1,4 +1,4 @@
-# Storage for Ollama models (persists across job runs)
+# Storage for Ollama models and ETL data (persists across job runs)
 # Models are downloaded once and reused, saving time on subsequent runs.
 
 ---
@@ -10,6 +10,7 @@ provisioner: kubernetes.io/no-provisioner
 volumeBindingMode: WaitForFirstConsumer
 
 ---
+# PV for Ollama models (LLM weights)
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -41,3 +42,37 @@ spec:
   resources:
     requests:
       storage: 20Gi
+
+---
+# PV for ETL input/output data
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ollama-etl-data-pv
+  labels:
+    type: local
+    app: ollama
+spec:
+  storageClassName: ollama-local-storage
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/ollama-etl-output
+    type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-etl-data-pvc
+  namespace: ollama
+spec:
+  storageClassName: ollama-local-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
