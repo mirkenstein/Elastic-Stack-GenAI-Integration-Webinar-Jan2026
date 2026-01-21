@@ -115,6 +115,13 @@ kubectl cp ollama/<pod-name>:/output/mediqa-classifications.json ./results.json 
 
 ## Cleanup
 
+Delete output files between runs
+```shell
+minikube -p kustomize ssh -- rm /mnt/ollama-etl-output/mediqa-classifications.json
+minikube -p kustomize ssh -- rm /mnt/ollama-etl-output/mediqa-failures.json
+```
+
+
 ```bash
 # Delete jobs (keeps model cache)
 kubectl delete job -n ollama --all
