@@ -275,6 +275,23 @@ POST /your-index/_doc?pipeline=hcpcs_enrichment
 GET your-index/_search
 ```
 
+**Compare RVU complexity across procedures** - Query only the HCPCS code and facility total RVU to see the relative complexity/reimbursement weight:
+
+```json
+GET your-index/_search
+{"_source": ["hcpcs_cd","rvu_data.facility_total_rvu"]}
+```
+
+Example output showing the dramatic difference in RVU values:
+
+| HCPCS Code | Procedure | Facility Total RVU |
+|------------|-----------|-------------------|
+| 99215 | E&M Office Visit | 4.23 |
+| 71046 | Chest X-ray | 1.01 |
+| 33533 | CABG Surgery | 54.90 |
+
+The RVU values reflect procedure complexity and resource intensity. A CABG surgery (54.90 RVUs) requires significantly more physician work, time, and skill compared to reading a chest X-ray (1.01 RVUs).
+
 For additional details, see [HCPCS_CBSA_ENRICHMENT_DEMO.md](../../HCPCS_CBSA_ENRICHMENT_DEMO.md)
 
 
