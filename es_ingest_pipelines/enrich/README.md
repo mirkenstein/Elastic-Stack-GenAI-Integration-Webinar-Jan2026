@@ -113,11 +113,169 @@ After creating the indices, load the data from the CSV files:
 
 #### Step 3: Create and Execute Enrich Policies
 
-Follow the complete setup instructions in the [HCPCS_CBSA_ENRICHMENT_DEMO.md](../../HCPCS_CBSA_ENRICHMENT_DEMO.md) file, which includes:
-1. Creating enrich policies for ZIP/CBSA, RVU, and RBCS
-2. Executing the policies to build enrich indices
-3. Creating the combined enrichment ingest pipeline
-4. Testing with sample data
+##### 1. ZIP/CBSA Enrichment Policy
+
+```json
+PUT /_enrich/policy/zip_cbsa_policy
+{
+  "match": {
+    "indices": "zip_county_cbsa_lookup",
+    "match_field": "zcta5ce20",
+    "enrich_fields": [
+      "cbsa_name",
+      "county_name"
+    ]
+  }
+}
+
+POST _enrich/policy/zip_cbsa_policy/_execute
+```
+
+##### 2. RVU Enrichment Policy
+
+```json
+PUT /_enrich/policy/hcpcs_rvu_policy
+{
+  "match": {
+    "indices": "hcpcs_rvu_lookup",
+    "match_field": "hcpcs_cd",
+    "enrich_fields": [
+      "year",
+      "description",
+      "status_code",
+      "is_active",
+      "work_rvu",
+      "non_facility_pe_rvu",
+      "facility_pe_rvu",
+      "malpractice_rvu",
+      "non_facility_total_rvu",
+      "facility_total_rvu",
+      "global_period",
+      "pc_tc_indicator",
+      "conversion_factor",
+      "non_facility_national_payment",
+      "facility_national_payment"
+    ]
+  }
+}
+
+POST _enrich/policy/hcpcs_rvu_policy/_execute
+```
+
+##### 3. RBCS Enrichment Policy
+
+```json
+PUT /_enrich/policy/hcpcs_rbcs_policy
+{
+  "match": {
+    "indices": "hcpcs_rbcs_lookup",
+    "match_field": "hcpcs_cd",
+    "enrich_fields": [
+      "rbcs_id",
+      "rbcs_cat",
+      "rbcs_cat_desc",
+      "rbcs_cat_subcat",
+      "rbcs_subcat_desc",
+      "rbcs_famnumb",
+      "rbcs_family_desc",
+      "rbcs_major_ind",
+      "hcpcs_cd_add_dt",
+      "hcpcs_cd_end_dt",
+      "rbcs_latest_assignment",
+      "first_rbcs_release_year",
+      "rbcs_analysis_start_dt",
+      "rbcs_analysis_end_dt",
+      "alt_assignment_method",
+      "rbcs_id_ever_reassigned"
+    ]
+  }
+}
+
+POST /_enrich/policy/hcpcs_rbcs_policy/_execute
+```
+
+#### Step 4: Create the Ingest Pipeline
+
+```json
+PUT _ingest/pipeline/hcpcs_enrichment
+{
+  "description": "Enrich HCPCS codes with RVU and RBCS data",
+  "processors": [
+    {
+      "enrich": {
+        "policy_name": "hcpcs_rvu_policy",
+        "field": "hcpcs_code",
+        "target_field": "rvu_data",
+        "max_matches": "1",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "enrich": {
+        "policy_name": "hcpcs_rbcs_policy",
+        "field": "hcpcs_code",
+        "target_field": "rbcs_data",
+        "max_matches": "1",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "enrich": {
+        "policy_name": "zip_cbsa_policy",
+        "field": "rndrng_prvdr_zip5",
+        "target_field": "cbsa_data",
+        "max_matches": "1",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    }
+  ]
+}
+```
+
+#### Step 5: Test with Sample Data
+
+Test the enrichment pipeline with different procedure types and geographic locations:
+
+**E&M Office Visit (99215)** - Level 4 established patient office visit, typically 30-39 minutes. Provider located in Corona, Queens, NY (New York-Newark-Jersey City metro area).
+
+```json
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{
+  "hcpcs_cd": "99215",
+  "rndrng_prvdr_zip5": "11368"
+}
+```
+
+**Chest X-ray (71046)** - Two-view chest radiograph (frontal and lateral). Provider located in downtown Chicago, IL (Chicago-Naperville-Elgin metro area).
+
+```json
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{
+  "hcpcs_cd": "71046",
+  "rndrng_prvdr_zip5": "60601"
+}
+```
+
+**CABG Surgery (33533)** - Coronary artery bypass graft using arterial conduit (single graft). Provider located in Beverly Hills, CA (Los Angeles-Long Beach-Anaheim metro area).
+
+```json
+POST /your-index/_doc?pipeline=hcpcs_enrichment
+{
+  "hcpcs_cd": "33533",
+  "rndrng_prvdr_zip5": "90210"
+}
+```
+
+**View enriched documents:**
+
+```json
+GET your-index/_search
+```
+
+For additional details, see [HCPCS_CBSA_ENRICHMENT_DEMO.md](../../HCPCS_CBSA_ENRICHMENT_DEMO.md)
 
 
 ---
