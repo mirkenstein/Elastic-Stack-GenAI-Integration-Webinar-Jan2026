@@ -13,8 +13,18 @@ The enrichment pipeline adds:
 
 #### Step 1: Create Lookup Indices
 
-Create three lookup indices manually from Kibana Dev Console. Each index is configured with `"mode": "lookup"` to support ES|QL JOIN operations (for future demos).
+Create three lookup indices from Kibana from file upload.
+Optionally each index can be configured with `"mode": "lookup"` to support ES|QL JOIN operations (for future demos).
 
+
+In the customize index settings UI add this.
+```json
+{
+  "index": {
+    "mode": "lookup"
+  }
+}
+```
 ##### 1. ZIP/CBSA/County Lookup Index
 
 ```json
